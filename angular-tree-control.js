@@ -17,7 +17,7 @@ if (typeof module !== "undefined" && typeof exports !== "undefined" && module.ex
                 scope = scope.$parent;
             }
             return _path;
-        }
+        };
     }
 
     function ensureDefault(obj, prop, value) {
@@ -80,8 +80,8 @@ if (typeof module !== "undefined" && typeof exports !== "undefined" && module.ex
         ensureDefault($scope.options, "allowDeselect", true);
         ensureDefault($scope.options, "isSelectable", defaultIsSelectable);
     }
-    
-    angular.module( 'treeControl', [] )
+
+    angular.module( 'treeControl', ['contextMenu'] )
         .constant('treeConfig', {
             templateUrl: null
         })
@@ -100,9 +100,7 @@ if (typeof module !== "undefined" && typeof exports !== "undefined" && module.ex
                 else
                     return "";
             }
-            
-            
-            
+
             return {
                 restrict: 'EA',
                 require: "treecontrol",
@@ -112,8 +110,10 @@ if (typeof module !== "undefined" && typeof exports !== "undefined" && module.ex
                     selectedNode: "=?",
                     selectedNodes: "=?",
                     expandedNodes: "=?",
-                    onSelection: "&",
-                    onNodeToggle: "&",
+                    onSelection: "&?",
+                    onNodeToggle: "&?",
+                    onRightClick: "&?",
+                    menuId: "@",
                     options: "=?",
                     orderBy: "=?",
                     reverseOrder: "@",
@@ -121,11 +121,11 @@ if (typeof module !== "undefined" && typeof exports !== "undefined" && module.ex
                     filterComparator: "=?"
                 },
                 controller: ['$scope', '$templateCache', '$interpolate', 'treeConfig', function ($scope, $templateCache, $interpolate, treeConfig) {
-                    
+
                     $scope.options = $scope.options || {};
-                    
+
                     ensureAllDefaultOptions($scope);
-                  
+
                     $scope.selectedNodes = $scope.selectedNodes || [];
                     $scope.expandedNodes = $scope.expandedNodes || [];
                     $scope.expandedNodesMap = {};
@@ -149,16 +149,29 @@ if (typeof module !== "undefined" && typeof exports !== "undefined" && module.ex
                     }
 
                     $scope.headClass = function(node) {
+                        var liClass = $scope.options.injectClasses.li;
+
+                        if (typeof liClass === "function") {
+                            liClass = liClass(node);
+                        }
+
+                        var additionalClasses = " " + classIfDefined(liClass, false);
+
                         var liSelectionClass = classIfDefined($scope.options.injectClasses.liSelected, false);
-                        var injectSelectionClass = "";
-                        if (liSelectionClass && isSelectedNode(node))
-                            injectSelectionClass = " " + liSelectionClass;
-                        if ($scope.options.isLeaf(node, $scope))
-                            return "tree-leaf" + injectSelectionClass;
-                        if ($scope.expandedNodesMap[this.$id])
-                            return "tree-expanded" + injectSelectionClass;
-                        else
-                            return "tree-collapsed" + injectSelectionClass;
+
+                        if (liSelectionClass && isSelectedNode(node)) {
+                            additionalClasses += " " + liSelectionClass;
+                        }
+
+                        if ($scope.options.isLeaf(node, $scope)) {
+                            return "tree-leaf" + additionalClasses;
+                        }
+
+                        if ($scope.expandedNodesMap[this.$id]) {
+                            return "tree-expanded" + additionalClasses;
+                        }
+
+                        return "tree-collapsed" + additionalClasses;
                     };
 
                     $scope.iBranchClass = function() {
@@ -241,11 +254,30 @@ if (typeof module !== "undefined" && typeof exports !== "undefined" && module.ex
                             }
                             if ($scope.onSelection) {
                                 var parentNode = (transcludedScope.$parent.node === transcludedScope.synteticRoot)?null:transcludedScope.$parent.node;
-                                var path = createPath(transcludedScope)
+                                var path = createPath(transcludedScope);
                                 $scope.onSelection({node: selectedNode, selected: selected, $parentNode: parentNode, $path: path,
                                   $index: transcludedScope.$index, $first: transcludedScope.$first, $middle: transcludedScope.$middle,
                                   $last: transcludedScope.$last, $odd: transcludedScope.$odd, $even: transcludedScope.$even});
                             }
+                        }
+                    };
+
+                    $scope.rightClickNodeLabel = function( targetNode, $event ) {
+
+                        // Is there a right click function??
+                        if($scope.onRightClick) {
+
+                            // Turn off the browser default context-menu
+                            if($event)
+                                $event.preventDefault();
+
+                            // Are are we changing the 'selected' node (as well)?
+                            if ($scope.selectedNode != targetNode) {
+                                this.selectNodeLabel(targetNode);
+                            }
+
+                            // Finally go do what they asked
+                            $scope.onRightClick({node: targetNode});
                         }
                     };
 
@@ -266,6 +298,9 @@ if (typeof module !== "undefined" && typeof exports !== "undefined" && module.ex
                     };
 
                     //tree template
+                    var rcLabel = $scope.onRightClick ? ' tree-right-click="rightClickNodeLabel(node)"' : '';
+                    var ctxMenuId = $scope.menuId ? ' context-menu-id="'+ $scope.menuId+'"' : '';
+
                     $scope.isReverse = function() {
                       return !($scope.reverseOrder === 'false' || $scope.reverseOrder === 'False' || $scope.reverseOrder === '' || $scope.reverseOrder === false);
                     };
@@ -273,13 +308,11 @@ if (typeof module !== "undefined" && typeof exports !== "undefined" && module.ex
                     $scope.orderByFunc = function() {
                       return $scope.orderBy;
                     };
-//                    return "" + $scope.orderBy;
 
                     var templateOptions = {
                         orderBy: $scope.orderBy ? " | orderBy:orderByFunc():isReverse()" : '',
                         ulClass: classIfDefined($scope.options.injectClasses.ul, true),
                         nodeChildren:  $scope.options.nodeChildren,
-                        liClass: classIfDefined($scope.options.injectClasses.li, true),
                         iLeafClass: classIfDefined($scope.options.injectClasses.iLeaf, false),
                         labelClass: classIfDefined($scope.options.injectClasses.label, false)
                     };
@@ -294,11 +327,11 @@ if (typeof module !== "undefined" && typeof exports !== "undefined" && module.ex
                     if(!template) {
                         template =
                             '<ul {{options.ulClass}} >' +
-                            '<li ng-repeat="node in node.{{options.nodeChildren}} | filter:filterExpression:filterComparator {{options.orderBy}}" ng-class="headClass(node)" {{options.liClass}}' +
+                            '<li ng-repeat="node in node.{{options.nodeChildren}} | filter:filterExpression:filterComparator {{options.orderBy}}" ng-class="headClass(node)"' +
                             'set-node-to-data>' +
                             '<i class="tree-branch-head" ng-class="iBranchClass()" ng-click="selectNodeHead(node)"></i>' +
                             '<i class="tree-leaf-head {{options.iLeafClass}}"></i>' +
-                            '<div class="tree-label {{options.labelClass}}" ng-class="[selectedClass(), unselectableClass()]" ng-click="selectNodeLabel(node)" tree-transclude></div>' +
+                            '<div class="tree-label {{options.labelClass}}" ng-class="[selectedClass(), unselectableClass()]" ng-click="selectNodeLabel(node)" ' + rcLabel + ctxMenuId + ' tree-transclude></div>' +
                             '<treeitem ng-if="nodeExpanded()"></treeitem>' +
                             '</li>' +
                             '</ul>';
@@ -356,10 +389,6 @@ if (typeof module !== "undefined" && typeof exports !== "undefined" && module.ex
                             scope.expandedNodesMap = newExpandedNodesMap;
                         });
 
-//                        scope.$watch('expandedNodesMap', function(newValue) {
-//
-//                        });
-
                         //Rendering template for a root node
                         treemodelCntr.template( scope, function(clone) {
                             element.html('').append( clone );
@@ -379,6 +408,16 @@ if (typeof module !== "undefined" && typeof exports !== "undefined" && module.ex
                     $element.data('node', $scope.node);
                     $element.data('scope-id', $scope.$id);
                 }
+            };
+        }])
+        .directive('treeRightClick', ['$parse', function($parse) {
+            return function(scope, element, attrs) {
+                var fn = $parse(attrs.treeRightClick);
+                element.bind('contextmenu', function(event) {
+                    scope.$apply(function() {
+                        fn(scope, {$event:event});
+                    });
+                });
             };
         }])
         .directive("treeitem", function() {

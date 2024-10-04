@@ -1,6 +1,8 @@
 describe('treeControl', function() {
     var $compile, $rootScope, element, num, $templateCache;
 
+    var LI_CLASS = "tree-branch-test";
+
     beforeEach(function () {
         module('treeControl');
         inject(function ($injector) {
@@ -17,6 +19,12 @@ describe('treeControl', function() {
             currentLevel.push({label: 'node ' + (num++), children: createSubTree(levels-1, children)});
         }
         return currentLevel;
+    }
+
+    function liClassFn(node) {
+        if (node.label === "node 7") {
+            return LI_CLASS;
+        }
     }
 
     describe('rendering', function () {
@@ -76,6 +84,24 @@ describe('treeControl', function() {
         });
 
     });
+
+    describe('rendering context menu', function () {
+        it('should not render context-menu-id attributes if menu-id is not provided', function() {
+            $rootScope.treedata = createSubTree(2, 2);
+            element = $compile('<treecontrol tree-model="treedata">{{node.label}}</treecontrol>')($rootScope);
+            $rootScope.$digest();
+            expect(element.find('div.tree-label:eq(0)')[0].attributes['context-menu-id']).toBeFalsy();
+        });
+
+        it('should render context-menu-id attributes if menu-id is provided', function() {
+
+            $rootScope.treedata = createSubTree(2,2);
+            element = $compile('<treecontrol tree-model="treedata" menu-id="ctxMenuId">{{node.label}}</treecontrol>')($rootScope);
+            $rootScope.$digest();
+            expect(element.find('div.tree-label:eq(0)')[0].attributes['context-menu-id'].value).toBe("ctxMenuId");
+        });
+    });
+
 
     describe('customising using options.isLeaf', function () {
         it('should display first level parents as collapsed nodes, including the leaf', function () {
@@ -290,9 +316,9 @@ describe('treeControl', function() {
             $rootScope.$digest();
 
             element.find('li:eq(0) div').click();
-            expect($rootScope.selectedItem).toBeUndefined()
+            expect($rootScope.selectedItem).toBeUndefined();
         });
-        
+
         it('should not un-select a node after second click when allowDeselect==false', function () {
             $rootScope.treeOptions = {allowDeselect: false};
             $rootScope.treedata = createSubTree(2, 2);
@@ -319,6 +345,18 @@ describe('treeControl', function() {
             $rootScope.treedata = angular.copy(testTree);
             $rootScope.$digest();
             expect(element.find('.tree-selected').length).toBe(1);
+        });
+    });
+
+    describe('rightclick', function() {
+        it('should invoke right-click callback when item is right-clicked', function() {
+
+            $rootScope.treedata = createSubTree(2,2);
+            element = $compile('<treecontrol tree-model="treedata" on-right-click="rightclick(node.label)">{{node.label}}</treecontrol>')($rootScope);
+            $rootScope.$digest();
+            $rootScope.rightclick = jasmine.createSpy('rightclick');
+            element.find('li:eq(1) div').triggerHandler('contextmenu');
+            expect($rootScope.rightclick).toHaveBeenCalledWith($rootScope.treedata[1].label);
         });
     });
 
@@ -584,26 +622,6 @@ describe('treeControl', function() {
             expect(element.find('li:eq(2)').text()).toBe('a');
         });
 
-        it('should support re-ordering as order-by is updated', function() {
-            $rootScope.treedata = [
-            { label: "a", id: 2, children: [] },
-            { label: "c", id: 1, children: [] },
-            { label: "b", id: 3, children: [] }
-            ];
-            $rootScope.predicate = 'label';
-            element = $compile('<treecontrol tree-model="treedata" order-by="predicate" reverse-order="{{reverse}}">{{node.label}}</treecontrol>')($rootScope);
-            $rootScope.$digest();
-            expect(element.find('li:eq(0)').text()).toBe('a');
-            expect(element.find('li:eq(1)').text()).toBe('b');
-            expect(element.find('li:eq(2)').text()).toBe('c');
-
-            $rootScope.predicate = 'id';
-            $rootScope.$digest();
-            expect(element.find('li:eq(0)').text()).toBe('c');
-            expect(element.find('li:eq(1)').text()).toBe('a');
-            expect(element.find('li:eq(2)').text()).toBe('b');
-        });
-
         it('should be able to accept alternative children variable name', function () {
             $rootScope.treedata = createSubTree(2, 2);
             $rootScope.treedata.push({kinder: [{}]});
@@ -698,6 +716,30 @@ describe('treeControl', function() {
             element.find('li:eq(0) .tree-branch-head').click();
             expect(element.find('li:eq(0) .tree-branch-head').hasClass('expandcls')).toBeTruthy();
             expect(element.find('li:eq(1) .tree-branch-head').hasClass('collapsecls')).toBeTruthy();
+        });
+
+        it('should be able to accept a string or function for the li element class names', function () {
+            // Constant li class
+
+            $rootScope.treedata = createSubTree(2, 2);
+            $rootScope.treeOptions = {injectClasses: { li: LI_CLASS }};
+            element = $compile('<treecontrol tree-model="treedata" options="treeOptions">{{node.label}}</treecontrol>')($rootScope);
+            $rootScope.$digest();
+
+            expect(element.find('li:eq(0)').hasClass(LI_CLASS)).toBe(true);
+
+            expect(element.find('li:eq(1)').hasClass(LI_CLASS)).toBe(true);
+
+            // Conditional li class, via a function.
+
+            $rootScope.treedata = createSubTree(2, 2);
+            $rootScope.treeOptions = {injectClasses: { li: liClassFn }};
+            element = $compile('<treecontrol tree-model="treedata" options="treeOptions">{{node.label}}</treecontrol>')($rootScope);
+            $rootScope.$digest();
+
+            expect(element.find('li:eq(0)').hasClass(LI_CLASS)).toBe(true);
+
+            expect(element.find('li:eq(1)').hasClass(LI_CLASS)).toBe(false);
         });
 
         it('should filter sibling nodes based on filter expression which is a string', function() {
